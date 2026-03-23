@@ -7,7 +7,7 @@ describe('select prop prompt template', () => {
 
     expect(template).toContain('关键剧情道具资产分析师')
     expect(template).toContain('宁缺毋滥')
-    expect(template).toContain('必须在剧情中承担明确功能')
+    expect(template).toContain('必须有明确剧情作用')
     expect(template).toContain('如果不确定它是否值得进入资产库，直接不输出')
     expect(template).toContain('仅因外观具体、名词明确，不足以成为关键道具')
   })
@@ -17,7 +17,7 @@ describe('select prop prompt template', () => {
 
     expect(template).toContain('key story prop extractor')
     expect(template).toContain('Be conservative')
-    expect(template).toContain('clear story function')
+    expect(template).toContain('explicit story function')
     expect(template).toContain('If you are unsure whether it deserves an asset entry, do not output it')
     expect(template).toContain('A specific-looking noun is not enough')
   })

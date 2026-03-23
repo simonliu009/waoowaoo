@@ -5,6 +5,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api-fetch'
 import { queryKeys } from '@/lib/query/keys'
 import { useTaskTargetStateMap } from '@/lib/query/hooks/useTaskTargetStateMap'
+import {
+  clearTaskTargetOverlay,
+  upsertTaskTargetOverlay,
+} from '@/lib/query/task-target-overlay'
 import type {
   AssetKind,
   AssetQueryInput,
@@ -175,6 +179,58 @@ type AssetActionScopeInput = {
   kind: AssetKind
 }
 
+type GenerateOverlayTarget = {
+  projectId: string
+  targetType: string
+  targetId: string
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function resolveGenerateOverlayTarget(
+  input: AssetActionScopeInput,
+  payload: Record<string, unknown>,
+): GenerateOverlayTarget | null {
+  const assetId = normalizeOptionalString(payload.id)
+    ?? normalizeOptionalString(payload.characterId)
+    ?? normalizeOptionalString(payload.locationId)
+  if (!assetId) {
+    return null
+  }
+
+  if (input.scope === 'global') {
+    return {
+      projectId: 'global-asset-hub',
+      targetType: input.kind === 'character' ? 'GlobalCharacter' : 'GlobalLocation',
+      targetId: assetId,
+    }
+  }
+
+  const projectId = normalizeOptionalString(input.projectId)
+  if (!projectId) {
+    return null
+  }
+
+  if (input.kind === 'character') {
+    const appearanceId = normalizeOptionalString(payload.appearanceId)
+    return {
+      projectId,
+      targetType: 'CharacterAppearance',
+      targetId: appearanceId ?? assetId,
+    }
+  }
+
+  return {
+    projectId,
+    targetType: 'LocationImage',
+    targetId: assetId,
+  }
+}
+
 function invalidateScopeQueries(queryClient: ReturnType<typeof useQueryClient>, input: AssetActionScopeInput) {
   queryClient.invalidateQueries({
     queryKey: queryKeys.assets.all(input.scope, input.projectId),
@@ -259,21 +315,37 @@ export function useAssetActions(input: AssetActionScopeInput) {
   }
 
   const generate = async (payload: Record<string, unknown>) => {
-    const response = await apiFetch(`/api/assets/${String(payload.id)}/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        scope: input.scope,
-        kind: input.kind,
-        projectId: input.projectId,
-        ...payload,
-      }),
-    })
-    if (!response.ok) {
-      throw new Error('Failed to generate asset render')
+    const assetId = String(payload.id)
+    const overlayTarget = resolveGenerateOverlayTarget(input, payload)
+    if (overlayTarget) {
+      upsertTaskTargetOverlay(queryClient, {
+        ...overlayTarget,
+        intent: 'generate',
+      })
     }
-    invalidateScopeQueries(queryClient, input)
-    return response.json()
+
+    try {
+      const response = await apiFetch(`/api/assets/${assetId}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: input.scope,
+          kind: input.kind,
+          projectId: input.projectId,
+          ...payload,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error('Failed to generate asset render')
+      }
+      invalidateScopeQueries(queryClient, input)
+      return response.json()
+    } catch (error) {
+      if (overlayTarget) {
+        clearTaskTargetOverlay(queryClient, overlayTarget)
+      }
+      throw error
+    }
   }
 
   const selectRender = async (payload: Record<string, unknown>) => {
